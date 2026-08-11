@@ -1,0 +1,153 @@
+# INTENT-HQ FORK: scheduled upstream-sync check. Detects new commits/releases on
+# snapview/tokio-tungstenite, attempts a merge into an integration branch
+# (sync/upstream-<date>), runs the gates on the merged tree, and opens/updates a
+# single draft PR against `deflate` as the notification (Issues are disabled on
+# this fork; a draft PR is the simplest surface a human actually notices).
+# This workflow NEVER pushes to `deflate` itself. See MAINTENANCE.md.
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # weekly, Monday 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: snapview/tokio-tungstenite
+  UPSTREAM_BRANCH: master
+  FORK_BRANCH: deflate
+
+jobs:
+  sync:
+    name: Check upstream and attempt merge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: deflate
+          fetch-depth: 0
+
+      - name: Fetch upstream and detect new commits/releases
+        id: detect
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --tags upstream "$UPSTREAM_BRANCH"
+          UPSTREAM_SHA=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
+          # Latest upstream release tag: plain vX.Y.Z only (fork tags carry a
+          # -deflate.N suffix and are excluded by the regex).
+          LATEST_TAG=$(git ls-remote --tags upstream 'v*' \
+            | awk '{print $2}' | sed 's|refs/tags/||; s|\^{}$||' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | tail -n1)
+          COMMITS_BEHIND=$(git rev-list --count "HEAD..upstream/$UPSTREAM_BRANCH")
+          TAG_MERGED=true
+          if [ -n "$LATEST_TAG" ] && ! git merge-base --is-ancestor "${LATEST_TAG}^{commit}" HEAD; then
+            TAG_MERGED=false
+          fi
+          NEEDED=false
+          if [ "$COMMITS_BEHIND" -gt 0 ] || [ "$TAG_MERGED" = "false" ]; then
+            NEEDED=true
+          fi
+          {
+            echo "needed=$NEEDED"
+            echo "upstream_sha=$UPSTREAM_SHA"
+            echo "latest_tag=$LATEST_TAG"
+            echo "commits_behind=$COMMITS_BEHIND"
+            echo "tag_merged=$TAG_MERGED"
+          } >> "$GITHUB_OUTPUT"
+          echo "Upstream $UPSTREAM_REPO@$UPSTREAM_SHA, latest tag $LATEST_TAG, behind by $COMMITS_BEHIND commit(s), tag merged: $TAG_MERGED"
+
+      - name: Attempt merge into integration branch
+        id: merge
+        if: steps.detect.outputs.needed == 'true'
+        run: |
+          git config user.name "intent-hq-upstream-sync[bot]"
+          git config user.email "upstream-sync@users.noreply.github.com"
+          # Reuse the head branch of an existing open sync PR so we keep
+          # updating a single notification PR instead of piling up new ones.
+          EXISTING_HEAD=$(gh pr list --state open --base "$FORK_BRANCH" \
+            --json headRefName --jq '[.[] | select(.headRefName | startswith("sync/upstream-"))][0].headRefName // empty')
+          SYNC_BRANCH="${EXISTING_HEAD:-sync/upstream-$(date -u +%Y%m%d)}"
+          git checkout -B "$SYNC_BRANCH"
+          if git merge --no-ff --no-edit "upstream/$UPSTREAM_BRANCH"; then
+            MERGE_CLEAN=true
+          else
+            git merge --abort
+            # Point the integration branch at upstream so the PR still exists
+            # and GitHub surfaces the conflict for manual resolution.
+            git reset --hard "upstream/$UPSTREAM_BRANCH"
+            MERGE_CLEAN=false
+          fi
+          {
+            echo "merge_clean=$MERGE_CLEAN"
+            echo "sync_branch=$SYNC_BRANCH"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install Rust toolchains
+        if: steps.detect.outputs.needed == 'true' && steps.merge.outputs.merge_clean == 'true'
+        run: |
+          rustup toolchain install stable --component clippy
+          rustup toolchain install nightly --component rustfmt
+          sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      - name: 'Gate: fmt'
+        id: gate_fmt
+        if: steps.detect.outputs.needed == 'true' && steps.merge.outputs.merge_clean == 'true'
+        continue-on-error: true
+        run: cargo +nightly fmt --all --check
+
+      - name: 'Gate: clippy'
+        id: gate_clippy
+        if: steps.detect.outputs.needed == 'true' && steps.merge.outputs.merge_clean == 'true'
+        continue-on-error: true
+        run: cargo +stable clippy --lib --tests --features connect,handshake,deflate -- -D warnings
+
+      - name: 'Gate: test (deflate)'
+        id: gate_test
+        if: steps.detect.outputs.needed == 'true' && steps.merge.outputs.merge_clean == 'true'
+        continue-on-error: true
+        run: cargo +stable test --release --features connect,handshake,deflate
+
+      - name: Push integration branch and open/update draft PR
+        if: steps.detect.outputs.needed == 'true'
+        run: |
+          SYNC_BRANCH="${{ steps.merge.outputs.sync_branch }}"
+          # Safety: this workflow must never push to the fork branch itself.
+          test "$SYNC_BRANCH" != "$FORK_BRANCH"
+          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          bash .github/workflows/upstream-sync-pr.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: ${{ steps.merge.outputs.sync_branch }}
+          UPSTREAM_SHA: ${{ steps.detect.outputs.upstream_sha }}
+          LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+          COMMITS_BEHIND: ${{ steps.detect.outputs.commits_behind }}
+          TAG_MERGED: ${{ steps.detect.outputs.tag_merged }}
+          MERGE_CLEAN: ${{ steps.merge.outputs.merge_clean }}
+          GATE_FMT: ${{ steps.gate_fmt.outcome }}
+          GATE_CLIPPY: ${{ steps.gate_clippy.outcome }}
+          GATE_TEST: ${{ steps.gate_test.outcome }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Upstream sync — ${UPSTREAM_REPO}"
+            echo ""
+            echo "- Upstream \`${UPSTREAM_BRANCH}\`: \`${{ steps.detect.outputs.upstream_sha }}\` (${{ steps.detect.outputs.commits_behind }} commit(s) not merged into \`${FORK_BRANCH}\`)"
+            echo "- Latest upstream release tag: \`${{ steps.detect.outputs.latest_tag }}\` (merged: ${{ steps.detect.outputs.tag_merged }})"
+            if [ "${{ steps.detect.outputs.needed }}" = "true" ]; then
+              echo "- Merge into \`${{ steps.merge.outputs.sync_branch }}\`: clean = ${{ steps.merge.outputs.merge_clean }}"
+              echo "- Gates: fmt=${{ steps.gate_fmt.outcome }}, clippy=${{ steps.gate_clippy.outcome }}, test=${{ steps.gate_test.outcome }}"
+            else
+              echo "- Up to date: no new upstream commits or releases. Nothing to do."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

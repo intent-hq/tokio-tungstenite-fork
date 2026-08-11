@@ -1,5 +1,13 @@
 # tokio-tungstenite
 
+> **INTENT-HQ FORK** — this is [intent-hq](https://github.com/intent-hq)'s fork of
+> [snapview/tokio-tungstenite](https://github.com/snapview/tokio-tungstenite). The
+> `deflate` branch (default) adds a `deflate` feature that forwards the
+> [intent-hq/tungstenite-rs](https://github.com/intent-hq/tungstenite-rs) fork's
+> permessage-deflate (RFC 7692) support, plus CI/upstream-sync automation. See
+> [MAINTENANCE.md](./MAINTENANCE.md) for the fork policy, branch layout, upstream
+> version bump procedure, and tagging convention.
+
 Asynchronous WebSockets for Tokio stack.
 
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
