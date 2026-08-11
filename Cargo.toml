@@ -27,13 +27,19 @@ rustls-tls-webpki-roots = ["__rustls-tls", "webpki-roots"]
 __rustls-tls = ["rustls", "rustls-pki-types", "tokio-rustls", "stream", "tungstenite/__rustls-tls", "handshake"]
 stream = []
 url = ["tungstenite/url"]
+# INTENT-HQ FORK: forwards the tungstenite fork's permessage-deflate support.
+deflate = ["tungstenite/deflate"]
 
 [dependencies]
 log = "0.4.17"
 futures-util = { version = "0.3.28", default-features = false, features = ["sink", "std"] }
 tokio = { version = "1.0.0", default-features = false, features = ["io-util"] }
 
+# INTENT-HQ FORK: tungstenite is consumed from the intent-hq fork's deflate
+# branch, which adds RFC 7692 permessage-deflate behind a `deflate` feature.
 [dependencies.tungstenite]
+git = "https://github.com/intent-hq/tungstenite-rs"
+branch = "deflate"
 version = "0.30.0"
 default-features = false
 

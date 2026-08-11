@@ -43,6 +43,10 @@ jobs:
       - name: Test
         run: cargo test --release
 
+      # INTENT-HQ FORK: exercise the deflate feature matrix.
+      - name: Test (deflate)
+        run: cargo test --release --features deflate,connect,handshake
+
   autobahn:
     name: Autobahn tests
     runs-on: ubuntu-latest

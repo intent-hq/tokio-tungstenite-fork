@@ -11,6 +11,9 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// A stream that might be protected with TLS.
+// INTENT-HQ FORK: pre-existing upstream lint under newer clippy; boxing the
+// variants would break the public API.
+#[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum MaybeTlsStream<S> {

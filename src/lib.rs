@@ -46,6 +46,7 @@ use tungstenite::{
 };
 use tungstenite::{
     error::Error as WsError,
+    extensions::Extensions,
     protocol::{Message, Role, WebSocket, WebSocketConfig},
 };
 
@@ -101,6 +102,8 @@ where
     R: IntoClientRequest + Unpin,
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    // INTENT-HQ FORK: pre-existing upstream lint under newer clippy.
+    #[allow(clippy::result_large_err)]
     let f = handshake::client_handshake(stream, move |allow_std| {
         let request = request.into_client_request()?;
         let cli_handshake = ClientHandshake::start(allow_std, request, config)?;
@@ -170,6 +173,8 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
     C: Callback + Unpin,
 {
+    // INTENT-HQ FORK: pre-existing upstream lint under newer clippy.
+    #[allow(clippy::result_large_err)]
     let f = handshake::server_handshake(stream, move |allow_std| {
         tungstenite::accept_hdr_with_config(allow_std, callback, config)
     });
@@ -221,6 +226,28 @@ impl<S> WebSocketStream<S> {
     {
         handshake::without_handshake(stream, move |allow_std| {
             WebSocket::from_raw_socket(allow_std, role, config)
+        })
+        .await
+    }
+
+    // INTENT-HQ FORK: extensions-aware variant of `from_raw_socket` for servers
+    // that perform the HTTP upgrade (and extension negotiation) themselves.
+    /// Convert a raw socket into a WebSocketStream without performing a
+    /// handshake, applying extensions (e.g. permessage-deflate) that were
+    /// already negotiated for the connection.
+    ///
+    /// This mirrors tungstenite's `WebSocket::from_raw_socket_with_extensions`.
+    pub async fn from_raw_socket_with_extensions(
+        stream: S,
+        role: Role,
+        config: Option<WebSocketConfig>,
+        extensions: Extensions,
+    ) -> Self
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        handshake::without_handshake(stream, move |allow_std| {
+            WebSocket::from_raw_socket_with_extensions(allow_std, role, config, extensions)
         })
         .await
     }
