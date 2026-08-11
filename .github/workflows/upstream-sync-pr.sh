@@ -49,8 +49,15 @@ EXISTING=$(gh pr list --state open --base "$FORK_BRANCH" \
 if [ -n "$EXISTING" ]; then
   gh pr edit "$EXISTING" --title "$TITLE" --body-file "$BODY_FILE"
   echo "Updated existing sync PR #$EXISTING"
-else
-  gh pr create --draft --base "$FORK_BRANCH" --head "$SYNC_BRANCH" \
-    --title "$TITLE" --body-file "$BODY_FILE"
+  echo "pr=updated" >> "$GITHUB_OUTPUT"
+elif gh pr create --draft --base "$FORK_BRANCH" --head "$SYNC_BRANCH" \
+    --title "$TITLE" --body-file "$BODY_FILE"; then
   echo "Opened new draft sync PR"
+  echo "pr=created" >> "$GITHUB_OUTPUT"
+else
+  # Org policy may block Actions-created PRs. The workflow falls back to
+  # failing visibly (see the "Fail visibly" step) with the details in the
+  # run summary and the pushed sync branch.
+  echo "::warning::Could not create the notification draft PR (likely org policy). Falling back to a visibly failing run."
+  echo "pr=blocked" >> "$GITHUB_OUTPUT"
 fi

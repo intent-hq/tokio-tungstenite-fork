@@ -39,15 +39,19 @@ default branch) run against the fork's real code.
    reports whether it merged cleanly and whether the gates pass (fmt / clippy /
    test with deflate).
 
-**Notification mechanism: a single draft PR** against `deflate` (opened once, then
-refreshed on subsequent runs). Issues are disabled on this fork, so a draft PR is the
-chosen surface — it appears in the PR list, notifies watchers, and carries the merge
-and gate results in its body. On merge conflicts the integration branch points at
-upstream head so GitHub surfaces the conflicts on the PR.
+**Notification mechanism** (Issues are disabled on this fork): the workflow first
+tries to open/update **a single draft PR** against `deflate` carrying the merge and
+gate results. The intent-hq org currently **blocks Actions-created PRs**, so in
+practice the fallback fires instead: the run **fails visibly** (red X on the
+scheduled run, which emails watchers), with the full report in the run summary and
+the integration branch already pushed. If the org policy is ever relaxed, the draft
+PR becomes the notification automatically and runs stay green. On merge conflicts
+the integration branch points at upstream head so a manually opened PR surfaces the
+conflicts.
 
 The workflow **never pushes to `deflate`**. A human (or agent) performs the actual
-version bump. Note: the draft PR is created with the workflow's `GITHUB_TOKEN`, so
-the regular CI workflow does not auto-run on it — the gate results in the PR body
+version bump. Note: branches/PRs produced with the workflow's `GITHUB_TOKEN` do not
+auto-trigger the regular CI workflow — the gate results in the run summary/PR body
 and a manual CI run on the integration branch are the signal.
 
 ## Upstream version bump procedure
