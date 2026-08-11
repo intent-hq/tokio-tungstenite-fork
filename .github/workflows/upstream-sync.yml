@@ -69,6 +69,9 @@ jobs:
         run: |
           git config user.name "intent-hq-upstream-sync[bot]"
           git config user.email "upstream-sync@users.noreply.github.com"
+          # Stash the PR helper: the merge/reset below can rewrite the
+          # working tree to upstream's, which does not contain it.
+          cp .github/workflows/upstream-sync-pr.sh "$RUNNER_TEMP/upstream-sync-pr.sh"
           # Reuse the head branch of an existing open sync PR (or, failing
           # that, the newest existing sync branch) so we keep updating a
           # single notification instead of piling up new branches/PRs.
@@ -129,7 +132,7 @@ jobs:
           # Safety: this workflow must never push to the fork branch itself.
           test "$SYNC_BRANCH" != "$FORK_BRANCH"
           git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
-          bash .github/workflows/upstream-sync-pr.sh
+          bash "$RUNNER_TEMP/upstream-sync-pr.sh"
         env:
           GH_TOKEN: ${{ github.token }}
           SYNC_BRANCH: ${{ steps.merge.outputs.sync_branch }}
