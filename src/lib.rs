@@ -312,6 +312,18 @@ impl<S> WebSocketStream<S> {
         self.inner.get_config()
     }
 
+    /// Change the configuration of the existing WebSocket without replacing its
+    /// stream or protocol state. Buffered frames and incomplete messages remain
+    /// owned by the same connection. This does not perform any I/O.
+    ///
+    /// # Panics
+    /// Panics if the resulting configuration is invalid, for example when
+    /// `max_write_buffer_size <= write_buffer_size`. As with Tungstenite's
+    /// setter, a panicking update does not roll back the configuration.
+    pub fn set_config(&mut self, set_func: impl FnOnce(&mut WebSocketConfig)) {
+        self.inner.set_config(set_func);
+    }
+
     /// Close the underlying web socket
     pub async fn close(&mut self, msg: Option<CloseFrame>) -> Result<(), WsError>
     where
